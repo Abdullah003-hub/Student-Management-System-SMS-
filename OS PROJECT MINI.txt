@@ -1,0 +1,206 @@
+
+#!/bin/bash
+
+DATA_FILE="students.txt"
+TEACHERS_FILE="teachers.txt"
+STUDENTS_FILE="student_credentials.txt"
+CGPA_THRESHOLD=2.0
+
+# Initialize files
+touch "$DATA_FILE" "$TEACHERS_FILE" "$STUDENTS_FILE"
+
+main_menu() {
+    while true; do
+        echo "===== Welcome to SMS ====="
+        echo "1. Teacher Login"
+        echo "2. Student Login"
+        echo "3. Exit"
+        read -p "Enter choice: " choice
+        case $choice in
+            1) teacher_login ;;
+            2) student_login ;;
+            3) exit 0 ;;
+            *) echo "Invalid choice!" ;;
+        esac
+    done
+}
+
+teacher_login() {
+    echo "Enter Teacher Username:"
+    IFS= read -r username
+    echo "Enter Password:"
+    IFS= read -rs password
+    echo
+
+    if grep -Fq "$username:" "$TEACHERS_FILE"; then
+        # Update password if changed
+        sed -i "/^$username:/d" "$TEACHERS_FILE"
+    fi
+    echo "$username:$password" >> "$TEACHERS_FILE"
+    echo "Teacher Login Successful"
+    teacher_menu
+}
+
+student_login() {
+    echo "Enter Student Username:"
+    IFS= read -r username
+    echo "Enter Password:"
+    IFS= read -rs password
+    echo
+
+    if grep -Fq "$username:" "$STUDENTS_FILE"; then
+        sed -i "/^$username:/d" "$STUDENTS_FILE"
+    fi
+    echo "$username:$password" >> "$STUDENTS_FILE"
+    echo "Student Login Successful"
+    student_menu "$username"
+}
+
+add_student() {
+    echo "Enter Roll Number:"
+    read roll
+    echo "Enter Name:"
+    IFS= read -r name
+    echo "Enter Marks:"
+    read marks
+    cgpa=$(echo "scale=2; $marks / 25" | bc)
+    grade="F"
+
+    if [ "$marks" -ge 90 ]; then grade="A+"
+    elif [ "$marks" -ge 80 ]; then grade="A"
+    elif [ "$marks" -ge 70 ]; then grade="B"
+    elif [ "$marks" -ge 60 ]; then grade="C"
+    elif [ "$marks" -ge 50 ]; then grade="D"
+    fi
+
+    echo "$roll,$name,$marks,$cgpa,$grade" >> "$DATA_FILE"
+    echo "Student added successfully!"
+}
+
+delete_student() {
+    echo "Enter Roll Number to Delete:"
+    read roll
+    grep -v "^$roll," "$DATA_FILE" > temp && mv temp "$DATA_FILE"
+    echo "Student deleted successfully!"
+}
+
+assign_marks() {
+    echo "Enter Roll Number:"
+    read roll
+    echo "Enter New Marks:"
+    read marks
+    cgpa=$(echo "scale=2; $marks / 25" | bc)
+    grade="F"
+
+    if [ "$marks" -ge 90 ]; then grade="A+"
+    elif [ "$marks" -ge 80 ]; then grade="A"
+    elif [ "$marks" -ge 70 ]; then grade="B"
+    elif [ "$marks" -ge 60 ]; then grade="C"
+    elif [ "$marks" -ge 50 ]; then grade="D"
+    fi
+
+    awk -F',' -v r="$roll" -v m="$marks" -v c="$cgpa" -v g="$grade" \
+        'BEGIN{OFS=","} $1==r{$3=m;$4=c;$5=g} {print}' "$DATA_FILE" > temp && mv temp "$DATA_FILE"
+    echo "Marks updated!"
+}
+
+calculate_grades() {
+    awk -F',' 'BEGIN {OFS=","}
+    {
+        grade = "F"
+        if ($3 >= 90) grade = "A+"
+        else if ($3 >= 80) grade = "A"
+        else if ($3 >= 70) grade = "B"
+        else if ($3 >= 60) grade = "C"
+        else if ($3 >= 50) grade = "D"
+        $4 = sprintf("%.2f", $3 / 25)
+        $5 = grade
+        print
+    }' "$DATA_FILE" > temp && mv temp "$DATA_FILE"
+    echo "Grades calculated successfully!"
+}
+
+list_passed() {
+    awk -F',' -v th="$CGPA_THRESHOLD" '$4 >= th' "$DATA_FILE"
+}
+
+list_failed() {
+    awk -F',' -v th="$CGPA_THRESHOLD" '$4 < th' "$DATA_FILE"
+}
+
+sort_students() {
+    echo "1. Ascending"
+    echo "2. Descending"
+    read -p "Choose: " choice
+    if [ "$choice" -eq 1 ]; then
+        sort -t',' -k4,4n "$DATA_FILE"
+    else
+        sort -t',' -k4,4nr "$DATA_FILE"
+    fi
+}
+
+view_student() {
+    echo "Enter Roll Number:"
+    read roll
+    info=$(grep "^$roll," "$DATA_FILE")
+
+    if [ -z "$info" ]; then
+        echo "Student not found!"
+    else
+        IFS=',' read -r r n m c g <<< "$info"
+        echo "==========================================="
+        printf "| %-8s | %-4s | %-5s | %-5s | %-5s |\n" "Roll No" "Name" "Marks" "CGPA" "Grade"
+        echo "-------------------------------------------"
+        printf "| %-8s | %-4s | %-5s | %-5s | %-5s |\n" "$r" "$n" "$m" "$c" "$g"
+        echo "==========================================="
+    fi
+}
+
+view_cgpa() {
+    awk -F',' -v user="$1" '$2 == user { print "CGPA:", $4 }' "$DATA_FILE"
+}
+
+teacher_menu() {
+    while true; do
+        echo "==== Teacher Menu ===="
+        echo "1. Add Student"
+        echo "2. Delete Student"
+        echo "3. Assign Marks"
+        echo "4. Calculate Grades"
+        echo "5. List Passed"
+        echo "6. List Failed"
+        echo "7. Sort Students"
+        echo "8. Logout"
+        read -p "Choice: " choice
+        case $choice in
+            1) add_student ;;
+            2) delete_student ;;
+            3) assign_marks ;;
+            4) calculate_grades ;;
+            5) list_passed ;;
+            6) list_failed ;;
+            7) sort_students ;;
+            8) break ;;
+            *) echo "Invalid!" ;;
+        esac
+    done
+}
+
+student_menu() {
+    while true; do
+        echo "==== Student Menu ===="
+        echo "1. View Grades"
+        echo "2. View CGPA"
+        echo "3. Logout"
+        read -p "Choice: " choice
+        case $choice in
+            1) view_student ;;
+            2) view_cgpa "$1" ;;
+            3) break ;;
+            *) echo "Invalid!" ;;
+        esac
+    done
+}
+
+# Start system
+main_menu
